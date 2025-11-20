@@ -1,0 +1,210 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [develop, stg, master]
+  pull_request:
+    branches: [develop, stg, master]
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [dev, stg, prod]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: |
+          pytest tests/unit -v
+          black --check notebooks/ functions/
+          flake8 notebooks/ functions/
+
+      - name: Validate schemas
+        run: |
+          python -m json.tool schemas/**/*.json > /dev/null
+          python -m json.tool pipelines/**/*.json > /dev/null
+
+  deploy-dev:
+    needs: test
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get Infrastructure Outputs
+        id: terraform
+        run: |
+          # Fetch from Terraform Cloud API
+          curl -H "Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" \
+            "https://app.terraform.io/api/v2/workspaces/${{ vars.TF_WORKSPACE_DEV }}/current-state-version?include=outputs" \
+            | jq -r '.included[].attributes' > outputs.json
+
+          echo "synapse_workspace=$(jq -r '.synapse_workspace_name.value' outputs.json)" >> $GITHUB_OUTPUT
+          echo "data_factory=$(jq -r '.data_factory_name.value' outputs.json)" >> $GITHUB_OUTPUT
+          echo "storage_account=$(jq -r '.storage_account_name.value' outputs.json)" >> $GITHUB_OUTPUT
+          echo "search_service=$(jq -r '.search_service_name.value' outputs.json)" >> $GITHUB_OUTPUT
+          echo "resource_group=$(jq -r '.resource_group_name.value' outputs.json)" >> $GITHUB_OUTPUT
+
+      - name: Deploy Synapse Notebooks
+        run: |
+          az extension add --name synapse
+
+          # Deploy each notebook mastertaining folder structure
+          for notebook in notebooks/**/*.py; do
+            name=$(basename "$notebook" .py)
+            folder=$(dirname "$notebook" | cut -d'/' -f2)
+            
+            az synapse notebook create \
+              --workspace-name ${{ steps.terraform.outputs.synapse_workspace }} \
+              --name "${folder}_${name}" \
+              --file @"$notebook" \
+              --folder-path "/$folder"
+          done
+
+      - name: Deploy ADF Pipelines
+        run: |
+          # Deploy pipeline definitions
+          for pipeline in pipelines/definitions/*.json; do
+            name=$(basename "$pipeline" .json)
+            
+            az datafactory pipeline create \
+              --factory-name ${{ steps.terraform.outputs.data_factory }} \
+              --resource-group ${{ steps.terraform.outputs.resource_group }} \
+              --name "$name" \
+              --pipeline @"$pipeline"
+          done
+
+          # Deploy datasets
+          for dataset in pipelines/datasets/*.json; do
+            name=$(basename "$dataset" .json)
+            
+            az datafactory dataset create \
+              --factory-name ${{ steps.terraform.outputs.data_factory }} \
+              --resource-group ${{ steps.terraform.outputs.resource_group }} \
+              --name "$name" \
+              --properties @"$dataset"
+          done
+
+      - name: Deploy Azure Functions
+        run: |
+          # Package functions
+          cd functions
+          zip -r functions.zip .
+
+          # Deploy to function app
+          az functionapp deployment source config-zip \
+            --resource-group ${{ steps.terraform.outputs.resource_group }} \
+            --name func-dataplatform-dev \
+            --src functions.zip
+
+      - name: Deploy Search Configurations
+        run: |
+          python scripts/deploy_search.py \
+            --search-service ${{ steps.terraform.outputs.search_service }} \
+            --config-dir search/ \
+            --environment dev
+
+      - name: Run Smoke Tests
+        run: |
+          pytest tests/integration/smoke --env=dev
+
+  deploy-stg:
+    needs: test
+    if: github.ref == 'refs/heads/stg'
+    runs-on: ubuntu-latest
+    environment: stg
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get Infrastructure Outputs
+        id: terraform
+        run: |
+          curl -H "Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" \
+            "https://app.terraform.io/api/v2/workspaces/${{ vars.TF_WORKSPACE_STG }}/current-state-version?include=outputs" \
+            | jq -r '.included[].attributes' > outputs.json
+
+          echo "synapse_workspace=$(jq -r '.synapse_workspace_name.value' outputs.json)" >> $GITHUB_OUTPUT
+          echo "data_factory=$(jq -r '.data_factory_name.value' outputs.json)" >> $GITHUB_OUTPUT
+          echo "resource_group=$(jq -r '.resource_group_name.value' outputs.json)" >> $GITHUB_OUTPUT
+
+      - name: Deploy Components
+        run: |
+          # Similar deployment steps as dev
+          ./scripts/deploy_all.sh stg
+
+  deploy-prod:
+    needs: test
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment:
+      name: prod
+      url: https://dataplatform.company.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Release Tag
+        run: |
+          VERSION=$(date +%Y%m%d-%H%M%S)
+          git tag -a "v$VERSION" -m "Production release $VERSION"
+          git push origin "v$VERSION"
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get Infrastructure Outputs
+        id: terraform
+        run: |
+          curl -H "Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" \
+            "https://app.terraform.io/api/v2/workspaces/${{ vars.TF_WORKSPACE_PROD }}/current-state-version?include=outputs" \
+            | jq -r '.included[].attributes' > outputs.json
+
+          echo "synapse_workspace=$(jq -r '.synapse_workspace_name.value' outputs.json)" >> $GITHUB_OUTPUT
+          echo "data_factory=$(jq -r '.data_factory_name.value' outputs.json)" >> $GITHUB_OUTPUT
+          echo "resource_group=$(jq -r '.resource_group_name.value' outputs.json)" >> $GITHUB_OUTPUT
+
+      - name: Backup Current Deployment
+        run: |
+          ./scripts/backup_deployment.sh prod
+
+      - name: Deploy with Validation
+        run: |
+          ./scripts/deploy_all.sh prod --validate
+
+      - name: Health Check
+        run: |
+          ./scripts/health_check.sh prod
+
+      - name: Notify Deployment
+        if: always()
+        run: |
+          ./scripts/notify.sh \
+            --status ${{ job.status }} \
+            --environment prod \
+            --version $VERSION
