@@ -1,0 +1,194 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Gold Document Schema",
+  "description": "Schema for business-ready enriched documents in gold layer",
+  "type": "object",
+  "required": ["document_id", "title", "content", "enrichment_timestamp"],
+  "properties": {
+    "document_id": {
+      "type": "string",
+      "description": "Unique identifier"
+    },
+    "title": {
+      "type": "string",
+      "description": "Document title"
+    },
+    "content": {
+      "type": "string",
+      "description": "Final processed content"
+    },
+    "executive_summary": {
+      "type": "string",
+      "description": "AI-generated executive summary"
+    },
+    "business_metadata": {
+      "type": "object",
+      "properties": {
+        "industry": { "type": "string" },
+        "topic": { "type": "string" },
+        "document_type": {
+          "type": "string",
+          "enum": [
+            "report",
+            "article",
+            "whitepaper",
+            "case_study",
+            "blog",
+            "documentation"
+          ]
+        },
+        "relevance_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"]
+        }
+      }
+    },
+    "ai_insights": {
+      "type": "object",
+      "properties": {
+        "main_topics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "topic": { "type": "string" },
+              "relevance": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          }
+        },
+        "questions_answered": {
+          "type": "array",
+          "description": "Key questions this document answers",
+          "items": { "type": "string" }
+        },
+        "action_items": {
+          "type": "array",
+          "description": "Extracted action items or recommendations",
+          "items": { "type": "string" }
+        },
+        "related_concepts": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "embeddings": {
+      "type": "object",
+      "properties": {
+        "embedding_model": {
+          "type": "string",
+          "examples": ["text-embedding-ada-002", "text-embedding-3-large"]
+        },
+        "embedding_vector": {
+          "type": "array",
+          "description": "Vector embedding for similarity search",
+          "items": { "type": "number" }
+        },
+        "embedding_dimension": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "search_metadata": {
+      "type": "object",
+      "description": "Metadata optimized for search",
+      "properties": {
+        "searchable_content": {
+          "type": "string",
+          "description": "Content optimized for full-text search"
+        },
+        "search_keywords": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "search_score_boost": {
+          "type": "number",
+          "minimum": 0,
+          "default": 1.0
+        }
+      }
+    },
+    "relationships": {
+      "type": "object",
+      "properties": {
+        "related_documents": {
+          "type": "array",
+          "description": "IDs of semantically related documents",
+          "items": { "type": "string" }
+        },
+        "citations": {
+          "type": "array",
+          "description": "Documents cited or referenced",
+          "items": { "type": "string" }
+        },
+        "cited_by": {
+          "type": "array",
+          "description": "Documents that cite this one",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "analytics": {
+      "type": "object",
+      "properties": {
+        "view_count": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "search_appearances": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "avg_relevance_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "last_accessed": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "source_lineage": {
+      "type": "object",
+      "properties": {
+        "bronze_path": { "type": "string" },
+        "silver_path": { "type": "string" },
+        "gold_path": { "type": "string" },
+        "processing_pipeline": { "type": "string" }
+      }
+    },
+    "published_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Original publication date"
+    },
+    "enrichment_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When gold layer enrichment completed"
+    },
+    "expiration_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When document should be archived/re-evaluated"
+    },
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    }
+  }
+}

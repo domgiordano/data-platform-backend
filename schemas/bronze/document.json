@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Bronze Document Schema",
+  "description": "Schema for documents in the bronze layer (raw with minimal processing)",
+  "type": "object",
+  "required": [
+    "document_id",
+    "source_system",
+    "ingestion_timestamp",
+    "raw_content"
+  ],
+  "properties": {
+    "document_id": {
+      "type": "string",
+      "description": "Unique identifier for the document",
+      "pattern": "^[a-zA-Z0-9_-]+$"
+    },
+    "source_system": {
+      "type": "string",
+      "description": "Source system or origin",
+      "examples": ["web_scraper", "api_ingest", "manual_upload"]
+    },
+    "source_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Original URL if from web source"
+    },
+    "file_name": {
+      "type": "string",
+      "description": "Original filename"
+    },
+    "file_type": {
+      "type": "string",
+      "description": "File extension/type",
+      "enum": ["pdf", "docx", "txt", "html", "json", "xml", "md"]
+    },
+    "file_size_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "File size in bytes"
+    },
+    "ingestion_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the document was ingested"
+    },
+    "raw_content": {
+      "type": "string",
+      "description": "Raw content as extracted"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional metadata from source",
+      "properties": {
+        "author": { "type": "string" },
+        "created_date": { "type": "string", "format": "date-time" },
+        "modified_date": { "type": "string", "format": "date-time" },
+        "title": { "type": "string" },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "checksum": {
+      "type": "string",
+      "description": "MD5 hash of raw content for deduplication"
+    },
+    "processing_status": {
+      "type": "string",
+      "enum": ["pending", "processing", "completed", "failed"],
+      "default": "pending"
+    },
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    }
+  }
+}
